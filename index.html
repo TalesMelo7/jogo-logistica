@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Jogo Logística — 2C</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Arial, sans-serif; background: #1b2430; color: #eee; padding: 16px; }
+  h1 { font-size: 20px; margin: 0 0 4px; color: #ffd54a; }
+  .sub { color: #aab; font-size: 13px; margin-bottom: 18px; }
+  .cartao { background: #243040; border-radius: 10px; padding: 16px; margin-bottom: 14px; }
+  label { display: block; font-size: 14px; margin-bottom: 6px; }
+  input { width: 100%; padding: 12px; font-size: 16px; border-radius: 8px; border: 1px solid #456; background: #fff; color: #000; }
+  button { width: 100%; margin-top: 12px; padding: 14px; font-size: 16px; border: 0; border-radius: 8px; background: #2f6bff; color: #fff; cursor: pointer; }
+  button:disabled { background: #556; }
+  .estado { font-size: 14px; padding: 10px 12px; border-radius: 8px; background: #152030; margin-top: 10px; }
+  .ok { border-left: 4px solid #2e8b57; } .erro { border-left: 4px solid #c0392b; } .aviso { border-left: 4px solid #ffd54a; }
+  ul { list-style: none; padding: 0; margin: 8px 0 0; }
+  li { padding: 8px 10px; border-bottom: 1px solid #334; font-size: 15px; }
+  li.eu { color: #ffd54a; }
+  .tag { font-size: 12px; color: #aab; margin-left: 6px; }
+  #oculto { display: none; }
+</style>
+</head>
+<body>
+<h1>Jogo Logística — 2C</h1>
+<div class="sub">Teste de conexão (bloco 1)</div>
+
+<div class="cartao" id="telaEntrada">
+  <label for="apelido">Seu apelido</label>
+  <input id="apelido" maxlength="20" placeholder="ex.: Lucas R." autocomplete="off">
+  <button id="botaoEntrar">Entrar</button>
+  <div id="estadoEntrada" class="estado aviso">Verificando sessão aberta...</div>
+</div>
+
+<div class="cartao" id="telaLobby" style="display:none">
+  <div>Sessão <b id="codigoSessao"></b> · <span id="estadoSessao"></span></div>
+  <div id="minhaFuncao" class="estado aviso" style="margin-top:10px">Aguardando o professor atribuir sua função.</div>
+  <div style="margin-top:14px">Online agora: <b id="totalOnline">0</b></div>
+  <ul id="listaOnline"></ul>
+  <div class="estado" id="estadoConexao">Conectando ao tempo real...</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+// ======================= CONFIGURAÇÃO =======================
+const SUPABASE_URL   = 'https://xtdixomxyykdredhcvyd.supabase.co';
+const SUPABASE_CHAVE = 'sb_publishable_CP_eV7p1b3Ed3m-aQDjqBg_TEkArGnN';
+const banco = supabase.createClient(SUPABASE_URL, SUPABASE_CHAVE);
+
+// ======================= ESTADO =======================
+const estado = { sessao: null, participante: null, canal: null, online: {} };
+
+// token fixo do aparelho: se recarregar a página, volta como o mesmo participante
+function tokenDoAparelho() {
+  let t = null;
+  try { t = localStorage.getItem('jogo_token'); } catch (e) {}
+  if (!t) {
+    t = 'c_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+    try { localStorage.setItem('jogo_token', t); } catch (e) {}
+  }
+  return t;
+}
+const TOKEN = tokenDoAparelho();
+
+const el = id => document.getElementById(id);
+function mostrarEstado(id, texto, classe) { const e = el(id); e.textContent = texto; e.className = 'estado ' + classe; }
+
+// ======================= ENTRADA =======================
+async function buscarSessaoAberta() {
+  const { data, error } = await banco.from('sessoes').select('*').neq('estado', 'encerrada').limit(1).maybeSingle();
+  if (error) { mostrarEstado('estadoEntrada', 'Erro ao consultar o servidor: ' + error.message, 'erro'); return null; }
+  if (!data) { mostrarEstado('estadoEntrada', 'Nenhuma sessão aberta no momento. Aguarde o professor.', 'aviso'); el('botaoEntrar').disabled = true; return null; }
+  mostrarEstado('estadoEntrada', 'Sessão ' + data.codigo + ' aberta. Digite seu apelido e entre.', 'ok');
+  el('botaoEntrar').disabled = false;
+  return data;
+}
+
+async function entrar() {
+  const apelido = el('apelido').value.trim();
+  if (apelido.length < 2) { mostrarEstado('estadoEntrada', 'Digite um apelido com pelo menos 2 letras.', 'erro'); return; }
+  el('botaoEntrar').disabled = true;
+  const sessao = await buscarSessaoAberta();
+  if (!sessao) return;
+
+  // se já existe participante deste aparelho nesta sessão, reaproveita
+  const { data: existente } = await banco.from('participantes').select('*')
+    .eq('sessao_id', sessao.id).eq('token_cliente', TOKEN).maybeSingle();
+
+  let participante = existente;
+  if (!participante) {
+    const { data, error } = await banco.from('participantes')
+      .insert({ sessao_id: sessao.id, apelido, token_cliente: TOKEN }).select().single();
+    if (error) { mostrarEstado('estadoEntrada', 'Não foi possível entrar: ' + error.message, 'erro'); el('botaoEntrar').disabled = false; return; }
+    participante = data;
+  } else if (participante.apelido !== apelido) {
+    await banco.from('participantes').update({ apelido }).eq('id', participante.id);
+    participante.apelido = apelido;
+  }
+
+  estado.sessao = sessao;
+  estado.participante = participante;
+  try { localStorage.setItem('jogo_apelido', apelido); } catch (e) {}
+  abrirLobby();
+}
+
+// ======================= LOBBY =======================
+function abrirLobby() {
+  el('telaEntrada').style.display = 'none';
+  el('telaLobby').style.display = 'block';
+  el('codigoSessao').textContent = estado.sessao.codigo;
+  el('estadoSessao').textContent = estado.sessao.estado;
+  atualizarFuncao(estado.participante);
+
+  // Canal de presença da sessão (quem está online agora)
+  estado.canal = banco.channel('sessao-' + estado.sessao.id, { config: { presence: { key: TOKEN } } });
+  estado.canal
+    .on('presence', { event: 'sync' }, () => {
+      estado.online = estado.canal.presenceState();
+      desenharOnline();
+    })
+    // mudanças na sessão (estado) e na minha linha de participante (função atribuída)
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'sessoes', filter: 'id=eq.' + estado.sessao.id }, p => {
+      estado.sessao = p.new; el('estadoSessao').textContent = p.new.estado;
+      if (p.new.estado === 'encerrada') mostrarEstado('estadoConexao', 'O professor encerrou a sessão.', 'aviso');
+    })
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'participantes', filter: 'id=eq.' + estado.participante.id }, p => {
+      estado.participante = p.new; atualizarFuncao(p.new);
+      estado.canal.track(presencaAtual());
+    })
+    .subscribe(async (status) => {
+      if (status === 'SUBSCRIBED') {
+        await estado.canal.track(presencaAtual());
+        mostrarEstado('estadoConexao', 'Conectado em tempo real.', 'ok');
+        registrarEvento('entrou_no_lobby', { apelido: estado.participante.apelido });
+      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        mostrarEstado('estadoConexao', 'Falha na conexão em tempo real (' + status + '). Verifique a rede.', 'erro');
+      }
+    });
+
+  // mantém "ultima_presenca" no banco a cada 30 s (o professor vê quem está vivo)
+  setInterval(() => banco.from('participantes').update({ ultima_presenca: new Date().toISOString() }).eq('id', estado.participante.id), 30000);
+}
+
+function presencaAtual() {
+  return { apelido: estado.participante.apelido, empresa: estado.participante.empresa, funcao: estado.participante.funcao, participante_id: estado.participante.id };
+}
+
+function atualizarFuncao(p) {
+  if (p.funcao) mostrarEstado('minhaFuncao', 'Sua função: ' + p.funcao + ' · Empresa ' + (p.empresa || '?'), 'ok');
+  else mostrarEstado('minhaFuncao', 'Aguardando o professor atribuir sua função.', 'aviso');
+}
+
+function desenharOnline() {
+  const lista = el('listaOnline');
+  lista.innerHTML = '';
+  const entradas = Object.entries(estado.online).map(([chave, v]) => ({ chave, ...v[0] }));
+  entradas.sort((a, b) => (a.apelido || '').localeCompare(b.apelido || ''));
+  el('totalOnline').textContent = entradas.length;
+  entradas.forEach(p => {
+    const li = document.createElement('li');
+    if (p.chave === TOKEN) li.className = 'eu';
+    li.textContent = p.apelido || '?';
+    if (p.funcao) { const t = document.createElement('span'); t.className = 'tag'; t.textContent = p.funcao + ' · ' + (p.empresa || ''); li.appendChild(t); }
+    lista.appendChild(li);
+  });
+}
+
+async function registrarEvento(tipo, detalhes) {
+  await banco.from('eventos').insert({ sessao_id: estado.sessao.id, participante_id: estado.participante.id, tipo, detalhes: detalhes || {} });
+}
+
+// ======================= INÍCIO =======================
+el('botaoEntrar').addEventListener('click', entrar);
+el('apelido').addEventListener('keydown', e => { if (e.key === 'Enter') entrar(); });
+try { el('apelido').value = localStorage.getItem('jogo_apelido') || ''; } catch (e) {}
+buscarSessaoAberta();
+</script>
+</body>
+</html>

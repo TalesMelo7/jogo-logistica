@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Painel do Professor — Jogo Logística</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Arial, sans-serif; background: #1b2430; color: #eee; padding: 16px; }
+  h1 { font-size: 20px; margin: 0 0 14px; color: #ffd54a; }
+  .cartao { background: #243040; border-radius: 10px; padding: 16px; margin-bottom: 14px; }
+  .linha { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  input, select { padding: 10px; font-size: 15px; border-radius: 8px; border: 1px solid #456; background: #fff; color: #000; }
+  button { padding: 10px 14px; font-size: 15px; border: 0; border-radius: 8px; background: #2f6bff; color: #fff; cursor: pointer; }
+  button.cinza { background: #556; } button.verde { background: #2e8b57; } button.vermelho { background: #c0392b; } button.amarelo { background: #b8860b; }
+  .estado { font-size: 14px; padding: 10px 12px; border-radius: 8px; background: #152030; margin-top: 10px; }
+  .ok { border-left: 4px solid #2e8b57; } .erro { border-left: 4px solid #c0392b; } .aviso { border-left: 4px solid #ffd54a; }
+  table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #334; }
+  .online { color: #4caf50; } .offline { color: #888; }
+  .resumo { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; font-size: 14px; color: #aab; }
+</style>
+</head>
+<body>
+<h1>Painel do Professor — Jogo Logística</h1>
+
+<div class="cartao" id="telaSenha">
+  <div class="linha">
+    <input id="senha" type="password" placeholder="Senha do professor" autocomplete="current-password">
+    <button id="botaoEntrar">Entrar</button>
+  </div>
+  <div id="estadoSenha" class="estado aviso">Verificando...</div>
+  <div id="blocoDefinir" style="display:none; margin-top:12px">
+    <div class="linha">
+      <input id="senhaNova" type="password" placeholder="Nova senha" autocomplete="new-password">
+      <input id="senhaNova2" type="password" placeholder="Repita a nova senha" autocomplete="new-password">
+      <button id="botaoDefinir" class="verde">Definir senha</button>
+    </div>
+  </div>
+</div>
+
+<div id="painel" style="display:none">
+  <div class="cartao">
+    <div id="semSessao">
+      <div class="linha">
+        <input id="codigoNovo" placeholder="Código da sessão (ex.: 2C-OUT1)" value="">
+        <button id="botaoCriar" class="verde">Abrir sessão</button>
+      </div>
+    </div>
+    <div id="comSessao" style="display:none">
+      <div>Sessão <b id="codigoSessao"></b> · estado: <b id="estadoSessao"></b></div>
+      <div class="linha" style="margin-top:10px">
+        <button id="botaoRodando" class="verde">Iniciar rodada</button>
+        <button id="botaoPausada" class="amarelo">Pausar</button>
+        <button id="botaoEncerrar" class="vermelho">Encerrar sessão</button>
+        <button id="botaoSortear" class="cinza">Distribuir funções automaticamente</button>
+      </div>
+    </div>
+    <div id="estadoSessaoMsg" class="estado aviso" style="display:none"></div>
+  </div>
+
+  <div class="cartao" id="cartaoParticipantes" style="display:none">
+    <div class="resumo">
+      <span>Entraram: <b id="totalEntraram">0</b></span>
+      <span>Online: <b id="totalOnline">0</b></span>
+      <span>Empresa A: <b id="totalA">0</b></span>
+      <span>Empresa B: <b id="totalB">0</b></span>
+    </div>
+    <table>
+      <thead><tr><th></th><th>Apelido</th><th>Empresa</th><th>Função</th><th>Entrou</th></tr></thead>
+      <tbody id="corpoParticipantes"></tbody>
+    </table>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+// ======================= CONFIGURAÇÃO =======================
+const SUPABASE_URL   = 'https://xtdixomxyykdredhcvyd.supabase.co';
+const SUPABASE_CHAVE = 'sb_publishable_CP_eV7p1b3Ed3m-aQDjqBg_TEkArGnN';
+const TURMA = '2C';
+const FUNCOES = ['Portaria', 'Recebimento', 'Fiscal', 'Armazenagem', 'Gestor de estoque'];
+const VAGAS_POR_EMPRESA = { 'Portaria': 1, 'Recebimento': 3, 'Fiscal': 1, 'Armazenagem': 3 }; // excedente vira Gestor de estoque
+const banco = supabase.createClient(SUPABASE_URL, SUPABASE_CHAVE);
+
+const estado = { senha: null, sessao: null, participantes: [], online: {}, canal: null };
+const el = id => document.getElementById(id);
+function mostrarEstado(id, texto, classe) { const e = el(id); e.style.display = 'block'; e.textContent = texto; e.className = 'estado ' + classe; }
+
+// ======================= SENHA =======================
+function prepararTelaSenha() {
+  mostrarEstado('estadoSenha', 'Digite a senha. Se é a primeira vez, defina uma senha abaixo (para trocar depois, informe a atual em cima e a nova embaixo).', 'aviso');
+  el('blocoDefinir').style.display = 'block';
+}
+
+async function entrarComSenha() {
+  const senha = el('senha').value;
+  const { data, error } = await banco.rpc('professor_senha_confere', { p_senha: senha });
+  if (error) { mostrarEstado('estadoSenha', 'Erro: ' + error.message, 'erro'); return; }
+  if (!data) { mostrarEstado('estadoSenha', 'Senha incorreta (ou ainda não definida).', 'erro'); return; }
+  estado.senha = senha;
+  try { sessionStorage.setItem('senha_professor', senha); } catch (e) {}
+  el('telaSenha').style.display = 'none';
+  el('painel').style.display = 'block';
+  carregarSessao();
+}
+
+async function definirSenha() {
+  const nova = el('senhaNova').value, nova2 = el('senhaNova2').value;
+  if (nova.length < 4) { mostrarEstado('estadoSenha', 'A senha precisa ter pelo menos 4 caracteres.', 'erro'); return; }
+  if (nova !== nova2) { mostrarEstado('estadoSenha', 'As senhas não conferem.', 'erro'); return; }
+  const atual = el('senha').value || null;
+  const { data, error } = await banco.rpc('professor_definir_senha', { p_senha_atual: atual, p_senha_nova: nova });
+  if (error) { mostrarEstado('estadoSenha', 'Erro: ' + error.message, 'erro'); return; }
+  if (!data) { mostrarEstado('estadoSenha', 'Já existe senha. Para trocar, digite a senha atual no campo de cima.', 'erro'); return; }
+  el('senha').value = nova;
+  mostrarEstado('estadoSenha', 'Senha definida. Entrando...', 'ok');
+  entrarComSenha();
+}
+
+// ======================= SESSÃO =======================
+async function carregarSessao() {
+  const { data } = await banco.from('sessoes').select('*').neq('estado', 'encerrada').limit(1).maybeSingle();
+  estado.sessao = data || null;
+  desenharSessao();
+  if (estado.sessao) { await carregarParticipantes(); assinarTempoReal(); }
+}
+
+function desenharSessao() {
+  const tem = !!estado.sessao;
+  el('semSessao').style.display = tem ? 'none' : 'block';
+  el('comSessao').style.display = tem ? 'block' : 'none';
+  el('cartaoParticipantes').style.display = tem ? 'block' : 'none';
+  if (tem) { el('codigoSessao').textContent = estado.sessao.codigo; el('estadoSessao').textContent = estado.sessao.estado; }
+}
+
+async function criarSessao() {
+  const codigo = el('codigoNovo').value.trim() || (TURMA + '-' + new Date().toISOString().slice(5, 10).replace('-', ''));
+  const { data, error } = await banco.rpc('professor_criar_sessao', { p_senha: estado.senha, p_codigo: codigo, p_turma: TURMA });
+  if (error) { mostrarEstado('estadoSessaoMsg', 'Erro ao abrir sessão: ' + error.message, 'erro'); return; }
+  estado.sessao = data;
+  mostrarEstado('estadoSessaoMsg', 'Sessão ' + data.codigo + ' aberta. Os alunos já podem entrar pelo link.', 'ok');
+  desenharSessao();
+  await carregarParticipantes();
+  assinarTempoReal();
+}
+
+async function mudarEstado(novo) {
+  if (novo === 'encerrada' && !confirm('Encerrar a sessão? Os alunos serão desconectados.')) return;
+  const { data, error } = await banco.rpc('professor_mudar_estado', { p_senha: estado.senha, p_sessao_id: estado.sessao.id, p_estado: novo });
+  if (error) { mostrarEstado('estadoSessaoMsg', 'Erro: ' + error.message, 'erro'); return; }
+  estado.sessao = data;
+  mostrarEstado('estadoSessaoMsg', 'Estado: ' + novo, 'ok');
+  if (novo === 'encerrada') { if (estado.canal) banco.removeChannel(estado.canal); estado.sessao = null; estado.participantes = []; }
+  desenharSessao();
+}
+
+// ======================= PARTICIPANTES =======================
+async function carregarParticipantes() {
+  const { data } = await banco.from('participantes').select('*').eq('sessao_id', estado.sessao.id).order('entrou_em');
+  estado.participantes = data || [];
+  desenharParticipantes();
+}
+
+function assinarTempoReal() {
+  if (estado.canal) banco.removeChannel(estado.canal);
+  estado.canal = banco.channel('sessao-' + estado.sessao.id, { config: { presence: { key: 'professor' } } });
+  estado.canal
+    .on('presence', { event: 'sync' }, () => { estado.online = estado.canal.presenceState(); desenharParticipantes(); })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'participantes', filter: 'sessao_id=eq.' + estado.sessao.id }, p => {
+      if (p.eventType === 'INSERT') estado.participantes.push(p.new);
+      else if (p.eventType === 'UPDATE') { const i = estado.participantes.findIndex(x => x.id === p.new.id); if (i >= 0) estado.participantes[i] = p.new; else estado.participantes.push(p.new); }
+      desenharParticipantes();
+    })
+    .subscribe();
+}
+
+function estaOnline(p) { return !!estado.online[p.token_cliente]; }
+
+function desenharParticipantes() {
+  const corpo = el('corpoParticipantes');
+  corpo.innerHTML = '';
+  let online = 0, a = 0, b = 0;
+  estado.participantes.forEach(p => {
+    const on = estaOnline(p); if (on) online++;
+    if (p.empresa === 'A') a++; if (p.empresa === 'B') b++;
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td class="' + (on ? 'online' : 'offline') + '">' + (on ? '●' : '○') + '</td>' +
+      '<td>' + escapar(p.apelido) + '</td>' +
+      '<td><select data-id="' + p.id + '" data-campo="empresa"><option value="">—</option><option' + (p.empresa === 'A' ? ' selected' : '') + '>A</option><option' + (p.empresa === 'B' ? ' selected' : '') + '>B</option></select></td>' +
+      '<td><select data-id="' + p.id + '" data-campo="funcao"><option value="">—</option>' +
+        FUNCOES.map(f => '<option' + (p.funcao === f ? ' selected' : '') + '>' + f + '</option>').join('') + '</select></td>' +
+      '<td>' + new Date(p.entrou_em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) + '</td>';
+    corpo.appendChild(tr);
+  });
+  corpo.querySelectorAll('select').forEach(s => s.addEventListener('change', aoMudarAtribuicao));
+  el('totalEntraram').textContent = estado.participantes.length;
+  el('totalOnline').textContent = online;
+  el('totalA').textContent = a; el('totalB').textContent = b;
+}
+
+async function aoMudarAtribuicao(e) {
+  const id = Number(e.target.dataset.id);
+  const p = estado.participantes.find(x => x.id === id);
+  const empresa = e.target.dataset.campo === 'empresa' ? (e.target.value || null) : p.empresa;
+  const funcao  = e.target.dataset.campo === 'funcao'  ? (e.target.value || null) : p.funcao;
+  await atribuir(id, empresa, funcao);
+}
+
+async function atribuir(id, empresa, funcao) {
+  const { data, error } = await banco.rpc('professor_atribuir', { p_senha: estado.senha, p_participante_id: id, p_empresa: empresa, p_funcao: funcao });
+  if (error) { mostrarEstado('estadoSessaoMsg', 'Erro ao atribuir: ' + error.message, 'erro'); return; }
+  const i = estado.participantes.findIndex(x => x.id === id); if (i >= 0) estado.participantes[i] = data;
+  desenharParticipantes();
+}
+
+// Distribui quem ainda não tem função: alterna A/B e preenche as vagas na ordem das funções
+async function distribuirAutomaticamente() {
+  const pendentes = estado.participantes.filter(p => !p.funcao);
+  if (!pendentes.length) { mostrarEstado('estadoSessaoMsg', 'Todos já têm função.', 'aviso'); return; }
+  const ocupadas = { A: {}, B: {} };
+  estado.participantes.forEach(p => { if (p.empresa && p.funcao) ocupadas[p.empresa][p.funcao] = (ocupadas[p.empresa][p.funcao] || 0) + 1; });
+  let proxima = (estado.participantes.filter(p => p.empresa === 'A').length <= estado.participantes.filter(p => p.empresa === 'B').length) ? 'A' : 'B';
+  for (const p of pendentes) {
+    const empresa = p.empresa || proxima;
+    if (!p.empresa) proxima = proxima === 'A' ? 'B' : 'A';
+    let funcao = 'Gestor de estoque';
+    for (const f of Object.keys(VAGAS_POR_EMPRESA)) {
+      if ((ocupadas[empresa][f] || 0) < VAGAS_POR_EMPRESA[f]) { funcao = f; break; }
+    }
+    ocupadas[empresa][funcao] = (ocupadas[empresa][funcao] || 0) + 1;
+    await atribuir(p.id, empresa, funcao);
+  }
+  mostrarEstado('estadoSessaoMsg', 'Funções distribuídas para ' + pendentes.length + ' aluno(s).', 'ok');
+}
+
+function escapar(t) { return String(t || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+// ======================= INÍCIO =======================
+el('botaoEntrar').addEventListener('click', entrarComSenha);
+el('senha').addEventListener('keydown', e => { if (e.key === 'Enter') entrarComSenha(); });
+el('botaoDefinir').addEventListener('click', definirSenha);
+el('botaoCriar').addEventListener('click', criarSessao);
+el('botaoRodando').addEventListener('click', () => mudarEstado('rodando'));
+el('botaoPausada').addEventListener('click', () => mudarEstado('pausada'));
+el('botaoEncerrar').addEventListener('click', () => mudarEstado('encerrada'));
+el('botaoSortear').addEventListener('click', distribuirAutomaticamente);
+verificarSeExisteSenha();
+try { const s = sessionStorage.getItem('senha_professor'); if (s) { el('senha').value = s; entrarComSenha(); } } catch (e) {}
+</script>
+</body>
+</html>
