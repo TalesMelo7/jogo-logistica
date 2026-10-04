@@ -22,15 +22,15 @@
 </style>
 </head>
 <body>
-<h1>Painel do Professor — Jogo Logística</h1>
+<h1>Painel do Professor — Jogo Logística <span style="font-size:12px;color:#aab">v3</span></h1>
 
 <div class="cartao" id="telaSenha">
   <div class="linha">
     <input id="senha" type="password" placeholder="Senha do professor" autocomplete="current-password">
     <button id="botaoEntrar">Entrar</button>
   </div>
-  <div id="estadoSenha" class="estado aviso">Verificando...</div>
-  <div id="blocoDefinir" style="display:none; margin-top:12px">
+  <div id="estadoSenha" class="estado aviso">Digite a senha. Se é a primeira vez, defina uma senha abaixo (para trocar depois, informe a atual em cima e a nova embaixo).</div>
+  <div id="blocoDefinir" style="margin-top:12px">
     <div class="linha">
       <input id="senhaNova" type="password" placeholder="Nova senha" autocomplete="new-password">
       <input id="senhaNova2" type="password" placeholder="Repita a nova senha" autocomplete="new-password">
@@ -81,17 +81,15 @@ const SUPABASE_CHAVE = 'sb_publishable_CP_eV7p1b3Ed3m-aQDjqBg_TEkArGnN';
 const TURMA = '2C';
 const FUNCOES = ['Portaria', 'Recebimento', 'Fiscal', 'Armazenagem', 'Gestor de estoque'];
 const VAGAS_POR_EMPRESA = { 'Portaria': 1, 'Recebimento': 3, 'Fiscal': 1, 'Armazenagem': 3 }; // excedente vira Gestor de estoque
+const el = id => document.getElementById(id);
+function mostrarEstado(id, texto, classe) { const e = el(id); e.style.display = 'block'; e.textContent = texto; e.className = 'estado ' + classe; }
+if (typeof supabase === 'undefined') mostrarEstado('estadoSenha', 'A biblioteca do Supabase não carregou (cdn.jsdelivr.net bloqueado?).', 'erro');
 const banco = supabase.createClient(SUPABASE_URL, SUPABASE_CHAVE);
 
 const estado = { senha: null, sessao: null, participantes: [], online: {}, canal: null };
-const el = id => document.getElementById(id);
-function mostrarEstado(id, texto, classe) { const e = el(id); e.style.display = 'block'; e.textContent = texto; e.className = 'estado ' + classe; }
 
 // ======================= SENHA =======================
-function prepararTelaSenha() {
-  mostrarEstado('estadoSenha', 'Digite a senha. Se é a primeira vez, defina uma senha abaixo (para trocar depois, informe a atual em cima e a nova embaixo).', 'aviso');
-  el('blocoDefinir').style.display = 'block';
-}
+window.addEventListener('error', e => mostrarEstado('estadoSenha', 'Erro na página: ' + e.message, 'erro'));
 
 async function entrarComSenha() {
   const senha = el('senha').value;
@@ -246,7 +244,6 @@ el('botaoRodando').addEventListener('click', () => mudarEstado('rodando'));
 el('botaoPausada').addEventListener('click', () => mudarEstado('pausada'));
 el('botaoEncerrar').addEventListener('click', () => mudarEstado('encerrada'));
 el('botaoSortear').addEventListener('click', distribuirAutomaticamente);
-prepararTelaSenha();
 try { const s = sessionStorage.getItem('senha_professor'); if (s) { el('senha').value = s; entrarComSenha(); } } catch (e) {}
 </script>
 </body>
