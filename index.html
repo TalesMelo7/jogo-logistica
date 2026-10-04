@@ -58,7 +58,7 @@
 
 <div id="telaEntrada">
   <h1>Jogo Logística — 2C</h1>
-  <div class="sub">Bloco 3 · portaria</div>
+  <div class="sub">Bloco 3 · portaria · v2</div>
   <div class="cartao">
     <label for="apelido">Seu apelido</label>
     <input id="apelido" maxlength="20" placeholder="ex.: Lucas R." autocomplete="off">
@@ -94,7 +94,7 @@
 // ======================= CONFIGURAÇÃO =======================
 const SUPABASE_URL   = 'https://xtdixomxyykdredhcvyd.supabase.co';
 const SUPABASE_CHAVE = 'sb_publishable_CP_eV7p1b3Ed3m-aQDjqBg_TEkArGnN';
-const VERSAO = 'bloco3-v1';
+const VERSAO = 'bloco3-v2';
 
 // Texto da tarefa da Portaria (editável)
 const TAREFA_PORTARIA = {
@@ -113,7 +113,8 @@ if (typeof supabase === 'undefined') mostrarEstado('estadoEntrada', 'A bibliotec
 if (typeof THREE === 'undefined') mostrarEstado('estadoEntrada', 'A biblioteca 3D (Three.js) não carregou.', 'erro');
 const banco = supabase.createClient(SUPABASE_URL, SUPABASE_CHAVE);
 
-const EH_TOQUE = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+// Celular/tablet = tela pequena com toque. Notebook com tela sensível ao toque continua usando mouse e teclado.
+const EH_TOQUE = (('ontouchstart' in window) || navigator.maxTouchPoints > 0) && (matchMedia('(pointer: coarse)').matches || Math.min(innerWidth, innerHeight) < 700);
 
 // ======================= ESTADO GERAL =======================
 const estado = { sessao: null, participante: null, canal: null, online: {}, jogoIniciado: false, caminhoes: {}, agenda: [], pontos: 0, tarefaAberta: false };
@@ -457,7 +458,7 @@ function ligarControles() {
   // mouse (computador)
   tela.addEventListener('mousedown', e => { if (e.button === 2 || e.button === 0) cam.arrastando = true; });
   addEventListener('mouseup', () => cam.arrastando = false);
-  addEventListener('mousemove', e => { if (cam.arrastando && !EH_TOQUE) girarCamera(e.movementX, e.movementY); });
+  addEventListener('mousemove', e => { if (cam.arrastando) girarCamera(e.movementX, e.movementY); });
   tela.addEventListener('contextmenu', e => e.preventDefault());
   addEventListener('wheel', e => { cam.distancia = Math.max(6, Math.min(30, cam.distancia + Math.sign(e.deltaY) * 1.5)); }, { passive: true });
 
