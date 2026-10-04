@@ -2,11 +2,12 @@
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Jogo Logística — 2C</title>
 <style>
   * { box-sizing: border-box; }
-  body { margin: 0; font-family: Arial, sans-serif; background: #1b2430; color: #eee; padding: 16px; }
+  html, body { margin: 0; height: 100%; overflow: hidden; font-family: Arial, sans-serif; background: #1b2430; color: #eee; }
+  #telaEntrada { padding: 16px; max-width: 520px; margin: 0 auto; }
   h1 { font-size: 20px; margin: 0 0 4px; color: #ffd54a; }
   .sub { color: #aab; font-size: 13px; margin-bottom: 18px; }
   .cartao { background: #243040; border-radius: 10px; padding: 16px; margin-bottom: 14px; }
@@ -16,43 +17,61 @@
   button:disabled { background: #556; }
   .estado { font-size: 14px; padding: 10px 12px; border-radius: 8px; background: #152030; margin-top: 10px; }
   .ok { border-left: 4px solid #2e8b57; } .erro { border-left: 4px solid #c0392b; } .aviso { border-left: 4px solid #ffd54a; }
-  ul { list-style: none; padding: 0; margin: 8px 0 0; }
-  li { padding: 8px 10px; border-bottom: 1px solid #334; font-size: 15px; }
-  li.eu { color: #ffd54a; }
-  .tag { font-size: 12px; color: #aab; margin-left: 6px; }
-  #oculto { display: none; }
+
+  /* ---- Jogo ---- */
+  #telaJogo { display: none; position: fixed; inset: 0; }
+  #telaJogo canvas { display: block; touch-action: none; }
+  #hud { position: fixed; left: 10px; top: 10px; background: rgba(0,0,0,.55); color: #fff; padding: 8px 12px; border-radius: 8px; font-size: 13px; line-height: 1.5; pointer-events: none; max-width: 70vw; }
+  #hud b { color: #ffd54a; }
+  #dica { position: fixed; left: 50%; bottom: 110px; transform: translateX(-50%); background: rgba(0,0,0,.75); color: #fff; padding: 10px 18px; border-radius: 8px; font-size: 15px; display: none; pointer-events: none; border: 2px solid #ffd54a; white-space: nowrap; }
+  #dica b { background: #ffd54a; color: #000; padding: 2px 8px; border-radius: 5px; margin-right: 6px; }
+  #joystick { position: fixed; left: 24px; bottom: 24px; width: 130px; height: 130px; border-radius: 50%; background: rgba(255,255,255,.12); border: 2px solid rgba(255,255,255,.35); display: none; touch-action: none; }
+  #joystickBolinha { position: absolute; left: 40px; top: 40px; width: 50px; height: 50px; border-radius: 50%; background: rgba(255,255,255,.55); }
+  #botaoAcao { position: fixed; right: 24px; bottom: 34px; width: 84px; height: 84px; border-radius: 50%; background: rgba(255,213,74,.85); color: #000; font-size: 30px; font-weight: bold; border: 3px solid #fff; display: none; touch-action: none; margin: 0; padding: 0; }
+  #ajuda { position: fixed; right: 10px; top: 10px; background: rgba(0,0,0,.55); color: #ddd; padding: 8px 12px; border-radius: 8px; font-size: 12px; line-height: 1.5; pointer-events: none; }
 </style>
 </head>
 <body>
-<h1>Jogo Logística — 2C</h1>
-<div class="sub">Teste de conexão (bloco 1)</div>
 
-<div class="cartao" id="telaEntrada">
-  <label for="apelido">Seu apelido</label>
-  <input id="apelido" maxlength="20" placeholder="ex.: Lucas R." autocomplete="off">
-  <button id="botaoEntrar">Entrar</button>
-  <div id="estadoEntrada" class="estado aviso">Verificando sessão aberta...</div>
+<div id="telaEntrada">
+  <h1>Jogo Logística — 2C</h1>
+  <div class="sub">Bloco 2 · mapa compartilhado</div>
+  <div class="cartao">
+    <label for="apelido">Seu apelido</label>
+    <input id="apelido" maxlength="20" placeholder="ex.: Lucas R." autocomplete="off">
+    <button id="botaoEntrar">Entrar</button>
+    <div id="estadoEntrada" class="estado aviso">Verificando sessão aberta...</div>
+  </div>
 </div>
 
-<div class="cartao" id="telaLobby" style="display:none">
-  <div>Sessão <b id="codigoSessao"></b> · <span id="estadoSessao"></span></div>
-  <div id="minhaFuncao" class="estado aviso" style="margin-top:10px">Aguardando o professor atribuir sua função.</div>
-  <div style="margin-top:14px">Online agora: <b id="totalOnline">0</b></div>
-  <ul id="listaOnline"></ul>
-  <div class="estado" id="estadoConexao">Conectando ao tempo real...</div>
+<div id="telaJogo">
+  <div id="hud"></div>
+  <div id="ajuda"></div>
+  <div id="dica"></div>
+  <div id="joystick"><div id="joystickBolinha"></div></div>
+  <button id="botaoAcao">E</button>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
 <script>
 // ======================= CONFIGURAÇÃO =======================
 const SUPABASE_URL   = 'https://xtdixomxyykdredhcvyd.supabase.co';
 const SUPABASE_CHAVE = 'sb_publishable_CP_eV7p1b3Ed3m-aQDjqBg_TEkArGnN';
+const VERSAO = 'bloco2-v1';
+
+const el = id => document.getElementById(id);
+function mostrarEstado(id, texto, classe) { const e = el(id); e.textContent = texto; e.className = 'estado ' + classe; }
+window.addEventListener('error', e => mostrarEstado('estadoEntrada', 'Erro na página: ' + e.message, 'erro'));
+if (typeof supabase === 'undefined') mostrarEstado('estadoEntrada', 'A biblioteca do Supabase não carregou.', 'erro');
+if (typeof THREE === 'undefined') mostrarEstado('estadoEntrada', 'A biblioteca 3D (Three.js) não carregou.', 'erro');
 const banco = supabase.createClient(SUPABASE_URL, SUPABASE_CHAVE);
 
-// ======================= ESTADO =======================
-const estado = { sessao: null, participante: null, canal: null, online: {} };
+const EH_TOQUE = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
 
-// token fixo do aparelho: se recarregar a página, volta como o mesmo participante
+// ======================= ESTADO GERAL =======================
+const estado = { sessao: null, participante: null, canal: null, online: {}, jogoIniciado: false };
+
 function tokenDoAparelho() {
   let t = null;
   try { t = localStorage.getItem('jogo_token'); } catch (e) {}
@@ -63,9 +82,6 @@ function tokenDoAparelho() {
   return t;
 }
 const TOKEN = tokenDoAparelho();
-
-const el = id => document.getElementById(id);
-function mostrarEstado(id, texto, classe) { const e = el(id); e.textContent = texto; e.className = 'estado ' + classe; }
 
 // ======================= ENTRADA =======================
 async function buscarSessaoAberta() {
@@ -84,91 +100,371 @@ async function entrar() {
   const sessao = await buscarSessaoAberta();
   if (!sessao) return;
 
-  // se já existe participante deste aparelho nesta sessão, reaproveita
-  const { data: existente } = await banco.from('participantes').select('*')
-    .eq('sessao_id', sessao.id).eq('token_cliente', TOKEN).maybeSingle();
-
+  const { data: existente } = await banco.from('participantes').select('*').eq('sessao_id', sessao.id).eq('token_cliente', TOKEN).maybeSingle();
   let participante = existente;
   if (!participante) {
-    const { data, error } = await banco.from('participantes')
-      .insert({ sessao_id: sessao.id, apelido, token_cliente: TOKEN }).select().single();
+    const { data, error } = await banco.from('participantes').insert({ sessao_id: sessao.id, apelido, token_cliente: TOKEN }).select().single();
     if (error) { mostrarEstado('estadoEntrada', 'Não foi possível entrar: ' + error.message, 'erro'); el('botaoEntrar').disabled = false; return; }
     participante = data;
   } else if (participante.apelido !== apelido) {
     await banco.from('participantes').update({ apelido }).eq('id', participante.id);
     participante.apelido = apelido;
   }
-
   estado.sessao = sessao;
   estado.participante = participante;
   try { localStorage.setItem('jogo_apelido', apelido); } catch (e) {}
-  abrirLobby();
+  iniciarJogo();
 }
 
-// ======================= LOBBY =======================
-function abrirLobby() {
-  el('telaEntrada').style.display = 'none';
-  el('telaLobby').style.display = 'block';
-  el('codigoSessao').textContent = estado.sessao.codigo;
-  el('estadoSessao').textContent = estado.sessao.estado;
-  atualizarFuncao(estado.participante);
+async function registrarEvento(tipo, detalhes) {
+  await banco.from('eventos').insert({ sessao_id: estado.sessao.id, participante_id: estado.participante.id, tipo, detalhes: detalhes || {} });
+}
 
-  // Canal de presença da sessão (quem está online agora)
-  estado.canal = banco.channel('sessao-' + estado.sessao.id, { config: { presence: { key: TOKEN } } });
-  estado.canal
-    .on('presence', { event: 'sync' }, () => {
-      estado.online = estado.canal.presenceState();
-      desenharOnline();
-    })
-    // mudanças na sessão (estado) e na minha linha de participante (função atribuída)
-    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'sessoes', filter: 'id=eq.' + estado.sessao.id }, p => {
-      estado.sessao = p.new; el('estadoSessao').textContent = p.new.estado;
-      if (p.new.estado === 'encerrada') mostrarEstado('estadoConexao', 'O professor encerrou a sessão.', 'aviso');
-    })
-    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'participantes', filter: 'id=eq.' + estado.participante.id }, p => {
-      estado.participante = p.new; atualizarFuncao(p.new);
-      estado.canal.track(presencaAtual());
-    })
-    .subscribe(async (status) => {
-      if (status === 'SUBSCRIBED') {
-        await estado.canal.track(presencaAtual());
-        mostrarEstado('estadoConexao', 'Conectado em tempo real.', 'ok');
-        registrarEvento('entrou_no_lobby', { apelido: estado.participante.apelido });
-      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-        mostrarEstado('estadoConexao', 'Falha na conexão em tempo real (' + status + '). Verifique a rede.', 'erro');
+// ======================= MAPA =======================
+const MAPA = {
+  larguraRua: 16,
+  afastamentoEmpresa: 12,   // distância da rua até a portaria de cada empresa
+  limite: 125,              // limite do mundo em X e Z
+};
+
+let cena, camera, renderizador, relogio;
+const jogador = { malha: null, x: 0, z: 0, angulo: 0, velocidade: 7 };
+const outros = {};   // token -> { malha, alvoX, alvoZ, alvoAng, apelido, visto }
+const teclas = {};
+const cam = { yaw: Math.PI, inclinacao: 0.5, distancia: 14, arrastando: false };
+const joystick = { ativo: false, id: null, cx: 0, cy: 0, dx: 0, dy: 0 };
+const toqueCamera = { ativo: false, id: null, x: 0, y: 0 };
+
+function caixa(l, a, p, cor, x, y, z) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(l, a, p), new THREE.MeshLambertMaterial({ color: cor }));
+  m.position.set(x, y, z);
+  return m;
+}
+function plano(l, p, cor, x, z, y = 0.03) {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(l, p), new THREE.MeshLambertMaterial({ color: cor }));
+  m.rotation.x = -Math.PI / 2; m.position.set(x, y, z);
+  return m;
+}
+
+function criarBoneco(corCorpo) {
+  const grupo = new THREE.Group();
+  const material = new THREE.MeshLambertMaterial({ color: corCorpo });
+  const corpo = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 1.4, 10), material); corpo.position.y = 0.7;
+  const cabeca = new THREE.Mesh(new THREE.SphereGeometry(0.3, 10, 10), material); cabeca.position.y = 1.6;
+  const nariz = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 0.4), new THREE.MeshLambertMaterial({ color: 0xffffff })); nariz.position.set(0, 1.0, 0.45);
+  grupo.add(corpo, cabeca, nariz);
+  return grupo;
+}
+
+// Etiqueta com o apelido acima do boneco (textura de canvas)
+function criarEtiqueta(texto, cor) {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 64;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(0, 0, 256, 64);
+  ctx.font = 'bold 30px Arial'; ctx.fillStyle = cor; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(texto.slice(0, 16), 128, 32);
+  const tex = new THREE.CanvasTexture(c);
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+  sprite.scale.set(4, 1, 1); sprite.position.y = 2.5;
+  return sprite;
+}
+
+// Constrói uma empresa no espaço local: portaria em x=0 virada para +X (a rua), galpão para -X
+function construirEmpresa(corTelhado) {
+  const g = new THREE.Group();
+  const corMuro = 0xb8b0a0;
+  // pátio e via interna
+  g.add(plano(100, 110, 0x8d8d85, -50, 0, 0.025));
+  g.add(plano(60, 12, 0x4a4a4a, -30, 0, 0.03));
+  // muro frontal com abertura da portaria (z de -7 a 7)
+  g.add(caixa(1, 3, 48, corMuro, 0, 1.5, -31));
+  g.add(caixa(1, 3, 48, corMuro, 0, 1.5, 31));
+  g.add(caixa(100, 3, 1, corMuro, -50, 1.5, -55));
+  g.add(caixa(100, 3, 1, corMuro, -50, 1.5, 55));
+  g.add(caixa(1, 3, 110, corMuro, -100, 1.5, 0));
+  // guarita e cancela
+  g.add(caixa(4, 3.2, 4, 0xe8e2d0, -4, 1.6, 10));
+  g.add(caixa(4.6, 0.3, 4.6, 0x6b4e2e, -4, 3.35, 10));
+  g.add(caixa(0.6, 1.2, 0.6, 0xffb300, 0, 0.6, 7.5));
+  const braco = caixa(0.25, 0.25, 14, 0xffffff, 0, 1.2, 0.5);
+  g.add(braco);
+  for (let i = 0; i < 5; i++) g.add(caixa(0.27, 0.27, 1.2, 0xd32f2f, 0, 1.2, 6 - i * 2.6));
+  // galpão com 3 docas na face leste (x=-60)
+  g.add(caixa(1, 9, 70, 0xc9c3b5, -60, 4.5, 0));
+  g.add(caixa(40, 9, 1, 0xc9c3b5, -80, 4.5, -35));
+  g.add(caixa(40, 9, 1, 0xc9c3b5, -80, 4.5, 35));
+  g.add(caixa(1, 9, 70, 0xc9c3b5, -99, 4.5, 0));
+  g.add(caixa(42, 0.6, 72, corTelhado, -80, 9.2, 0));
+  [-22, 0, 22].forEach((z, i) => {
+    g.add(caixa(0.4, 4.2, 6, 0x222a33, -59.6, 3.3, z));           // porta da doca
+    g.add(caixa(4, 1.2, 12, 0x8c8c8c, -57.5, 0.6, z));            // plataforma
+    g.add(caixa(1.2, 1.2, 0.8, 0x222222, -55.6, 0.6, z - 3.2));   // amortecedores
+    g.add(caixa(1.2, 1.2, 0.8, 0x222222, -55.6, 0.6, z + 3.2));
+    g.add(caixa(0.2, 1, 5, [0x1b4f8a, 0x2e8b57, 0xb8860b][i], -59.4, 6.6, z)); // placa colorida DOCA 1/2/3
+  });
+  // escritório do fiscal
+  g.add(caixa(10, 3.5, 8, 0xd9d4c4, -30, 1.75, -40));
+  g.add(caixa(11, 0.4, 9, 0x6b4e2e, -30, 3.7, -40));
+  g.add(caixa(0.2, 2.2, 2, 0x1b4f8a, -24.9, 1.1, -40));          // porta azul
+  return g;
+}
+
+function construirMundo() {
+  cena = new THREE.Scene();
+  cena.background = new THREE.Color(0x87a8c4);
+  cena.fog = new THREE.Fog(0x87a8c4, 90, 220);
+  camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 400);
+  renderizador = new THREE.WebGLRenderer({ antialias: !EH_TOQUE });
+  renderizador.setPixelRatio(Math.min(devicePixelRatio || 1, EH_TOQUE ? 1.5 : 2));
+  renderizador.setSize(innerWidth, innerHeight);
+  el('telaJogo').appendChild(renderizador.domElement);
+
+  cena.add(new THREE.HemisphereLight(0xffffff, 0x556655, 1.0));
+  const sol = new THREE.DirectionalLight(0xffffff, 0.6); sol.position.set(30, 50, 20); cena.add(sol);
+
+  cena.add(plano(260, 260, 0x6b8f5a, 0, 0, 0));
+  const grade = new THREE.GridHelper(260, 65, 0x224422, 0x335533); grade.position.y = 0.02; cena.add(grade);
+  cena.add(plano(MAPA.larguraRua, 260, 0x3a3a3a, 0, 0, 0.03));                 // rua central (norte-sul)
+  for (let z = -120; z <= 120; z += 10) cena.add(plano(0.4, 4, 0xdddddd, 0, z, 0.035)); // faixa tracejada
+
+  const dx = MAPA.larguraRua / 2 + MAPA.afastamentoEmpresa;
+  const empresaA = construirEmpresa(0x7a6f63); empresaA.position.x = -dx; cena.add(empresaA);                          // galpão para oeste
+  const empresaB = construirEmpresa(0x5f6f8a); empresaB.position.x = dx; empresaB.rotation.y = Math.PI; cena.add(empresaB); // espelhada
+  // acessos da rua até as portarias
+  cena.add(plano(MAPA.afastamentoEmpresa, 12, 0x4a4a4a, -(MAPA.larguraRua / 2 + MAPA.afastamentoEmpresa / 2), 0, 0.03));
+  cena.add(plano(MAPA.afastamentoEmpresa, 12, 0x4a4a4a, (MAPA.larguraRua / 2 + MAPA.afastamentoEmpresa / 2), 0, 0.03));
+  // letreiros das empresas (blocos coloridos no muro)
+  cena.add(caixa(8, 2, 0.4, 0xd23b3b, -dx - 10, 4.5, -56));
+  cena.add(caixa(8, 2, 0.4, 0x2f6bff, dx + 10, 4.5, -56));
+
+  jogador.malha = criarBoneco(corDaEmpresa(estado.participante.empresa));
+  jogador.malha.add(criarEtiqueta(estado.participante.apelido, '#ffd54a'));
+  cena.add(jogador.malha);
+  const p = pontoInicial(estado.participante.empresa);
+  jogador.x = p.x; jogador.z = p.z; jogador.angulo = p.angulo;
+  cam.yaw = p.angulo + Math.PI;
+}
+
+function corDaEmpresa(empresa) { return empresa === 'A' ? 0xd23b3b : empresa === 'B' ? 0x2f6bff : 0x888888; }
+function pontoInicial(empresa) {
+  const dx = MAPA.larguraRua / 2 + MAPA.afastamentoEmpresa;
+  if (empresa === 'A') return { x: -dx - 8, z: 10, angulo: -Math.PI / 2 };
+  if (empresa === 'B') return { x: dx + 8, z: 10, angulo: Math.PI / 2 };
+  return { x: (Math.random() - 0.5) * 6, z: 40 + (Math.random() - 0.5) * 10, angulo: Math.PI };
+}
+
+// ======================= CONTROLES =======================
+function ligarControles() {
+  addEventListener('keydown', e => { teclas[e.key.toLowerCase()] = true; if (e.key.toLowerCase() === 'e') acaoInteragir(); });
+  addEventListener('keyup', e => { teclas[e.key.toLowerCase()] = false; });
+  addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderizador.setSize(innerWidth, innerHeight); });
+
+  const tela = renderizador.domElement;
+  // mouse (computador)
+  tela.addEventListener('mousedown', e => { if (e.button === 2 || e.button === 0) cam.arrastando = true; });
+  addEventListener('mouseup', () => cam.arrastando = false);
+  addEventListener('mousemove', e => { if (cam.arrastando && !EH_TOQUE) girarCamera(e.movementX, e.movementY); });
+  tela.addEventListener('contextmenu', e => e.preventDefault());
+  addEventListener('wheel', e => { cam.distancia = Math.max(6, Math.min(30, cam.distancia + Math.sign(e.deltaY) * 1.5)); }, { passive: true });
+
+  // toque (celular): joystick à esquerda, arrastar na tela gira a câmera, botão E
+  if (EH_TOQUE) {
+    el('joystick').style.display = 'block';
+    el('botaoAcao').style.display = 'block';
+    const joy = el('joystick');
+    joy.addEventListener('touchstart', e => {
+      const t = e.changedTouches[0]; const r = joy.getBoundingClientRect();
+      joystick.ativo = true; joystick.id = t.identifier; joystick.cx = r.left + r.width / 2; joystick.cy = r.top + r.height / 2;
+      moverJoystick(t); e.preventDefault();
+    }, { passive: false });
+    joy.addEventListener('touchmove', e => { for (const t of e.changedTouches) if (t.identifier === joystick.id) moverJoystick(t); e.preventDefault(); }, { passive: false });
+    const soltar = e => { for (const t of e.changedTouches) if (t.identifier === joystick.id) { joystick.ativo = false; joystick.dx = joystick.dy = 0; el('joystickBolinha').style.transform = ''; } };
+    joy.addEventListener('touchend', soltar); joy.addEventListener('touchcancel', soltar);
+
+    tela.addEventListener('touchstart', e => {
+      const t = e.changedTouches[0];
+      if (!toqueCamera.ativo) { toqueCamera.ativo = true; toqueCamera.id = t.identifier; toqueCamera.x = t.clientX; toqueCamera.y = t.clientY; }
+    }, { passive: true });
+    tela.addEventListener('touchmove', e => {
+      for (const t of e.changedTouches) if (t.identifier === toqueCamera.id) {
+        girarCamera((t.clientX - toqueCamera.x) * 1.6, (t.clientY - toqueCamera.y) * 1.6);
+        toqueCamera.x = t.clientX; toqueCamera.y = t.clientY;
       }
-    });
+    }, { passive: true });
+    const soltarCam = e => { for (const t of e.changedTouches) if (t.identifier === toqueCamera.id) toqueCamera.ativo = false; };
+    tela.addEventListener('touchend', soltarCam); tela.addEventListener('touchcancel', soltarCam);
 
-  // mantém "ultima_presenca" no banco a cada 30 s (o professor vê quem está vivo)
-  setInterval(() => banco.from('participantes').update({ ultima_presenca: new Date().toISOString() }).eq('id', estado.participante.id), 30000);
+    el('botaoAcao').addEventListener('touchstart', e => { e.preventDefault(); acaoInteragir(); }, { passive: false });
+    el('ajuda').textContent = 'Joystick: andar · Arrastar: câmera · E: interagir';
+  } else {
+    el('ajuda').innerHTML = 'WASD: andar · Arrastar mouse: câmera · Roda: zoom · E: interagir';
+  }
+}
+
+function moverJoystick(t) {
+  let dx = t.clientX - joystick.cx, dy = t.clientY - joystick.cy;
+  const raio = 45, d = Math.hypot(dx, dy);
+  if (d > raio) { dx = dx / d * raio; dy = dy / d * raio; }
+  joystick.dx = dx / raio; joystick.dy = dy / raio;
+  el('joystickBolinha').style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+}
+
+function girarCamera(mx, my) {
+  cam.yaw -= mx * 0.005;
+  cam.inclinacao = Math.max(0.15, Math.min(1.3, cam.inclinacao + my * 0.005));
+}
+
+function acaoInteragir() {
+  // Bloco 2: ainda não há estações para interagir; bloco 3 liga a Portaria.
+  mostrarDica('Nada para interagir aqui ainda.');
+  setTimeout(esconderDica, 1200);
+}
+function mostrarDica(html) { el('dica').innerHTML = html; el('dica').style.display = 'block'; }
+function esconderDica() { el('dica').style.display = 'none'; }
+
+// ======================= REDE (posições em tempo real) =======================
+let ultimoEnvio = 0, ultimaPosEnviada = { x: null, z: null, a: null };
+function enviarPosicao(agora, forcar) {
+  if (!estado.canal) return;
+  const mudou = ultimaPosEnviada.x === null || Math.abs(jogador.x - ultimaPosEnviada.x) > 0.05 || Math.abs(jogador.z - ultimaPosEnviada.z) > 0.05 || Math.abs(jogador.angulo - ultimaPosEnviada.a) > 0.02;
+  const intervalo = mudou ? 100 : 2000;   // 10x/s em movimento; batimento a cada 2 s parado
+  if (!forcar && agora - ultimoEnvio < intervalo) return;
+  ultimoEnvio = agora;
+  ultimaPosEnviada = { x: jogador.x, z: jogador.z, a: jogador.angulo };
+  estado.canal.send({ type: 'broadcast', event: 'posicao', payload: { t: TOKEN, x: +jogador.x.toFixed(2), z: +jogador.z.toFixed(2), a: +jogador.angulo.toFixed(2) } });
+}
+
+function receberPosicao(p) {
+  if (p.t === TOKEN) return;
+  let o = outros[p.t];
+  if (!o) {
+    const pres = estado.online[p.t] && estado.online[p.t][0];
+    o = outros[p.t] = { malha: criarBoneco(corDaEmpresa(pres && pres.empresa)), alvoX: p.x, alvoZ: p.z, alvoAng: p.a, apelido: pres ? pres.apelido : '?', empresa: pres ? (pres.empresa || null) : null, visto: 0 };
+    o.malha.position.set(p.x, 0, p.z);
+    o.malha.add(criarEtiqueta(o.apelido, '#ffffff'));
+    cena.add(o.malha);
+  }
+  o.alvoX = p.x; o.alvoZ = p.z; o.alvoAng = p.a; o.visto = performance.now();
+}
+
+function sincronizarComPresenca() {
+  // remove quem saiu; atualiza cor/apelido de quem recebeu função
+  for (const t in outros) if (!estado.online[t]) { cena.remove(outros[t].malha); delete outros[t]; }
+  for (const t in outros) {
+    const pres = estado.online[t][0], o = outros[t];
+    if (pres && (pres.apelido !== o.apelido || (pres.empresa || null) !== o.empresa)) {
+      cena.remove(o.malha); delete outros[t];
+      receberPosicao({ t, x: o.alvoX, z: o.alvoZ, a: o.alvoAng });
+    }
+  }
 }
 
 function presencaAtual() {
   return { apelido: estado.participante.apelido, empresa: estado.participante.empresa, funcao: estado.participante.funcao, participante_id: estado.participante.id };
 }
 
-function atualizarFuncao(p) {
-  if (p.funcao) mostrarEstado('minhaFuncao', 'Sua função: ' + p.funcao + ' · Empresa ' + (p.empresa || '?'), 'ok');
-  else mostrarEstado('minhaFuncao', 'Aguardando o professor atribuir sua função.', 'aviso');
+function conectarTempoReal() {
+  estado.canal = banco.channel('sessao-' + estado.sessao.id, { config: { presence: { key: TOKEN }, broadcast: { self: false, ack: false } } });
+  estado.canal
+    .on('presence', { event: 'sync' }, () => { estado.online = estado.canal.presenceState(); sincronizarComPresenca(); atualizarHud(); })
+    .on('broadcast', { event: 'posicao' }, m => receberPosicao(m.payload))
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'sessoes', filter: 'id=eq.' + estado.sessao.id }, p => {
+      estado.sessao = p.new; atualizarHud();
+      if (p.new.estado === 'encerrada') { mostrarDica('O professor encerrou a sessão.'); }
+    })
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'participantes', filter: 'id=eq.' + estado.participante.id }, p => {
+      const antes = estado.participante.empresa;
+      estado.participante = p.new;
+      estado.canal.track(presencaAtual());
+      if (p.new.empresa !== antes) {
+        // recebeu empresa: troca a cor e vai para a portaria dela
+        jogador.malha.children[0].material.color.setHex(corDaEmpresa(p.new.empresa));
+        const pi = pontoInicial(p.new.empresa); jogador.x = pi.x; jogador.z = pi.z; jogador.angulo = pi.angulo; cam.yaw = pi.angulo + Math.PI;
+        enviarPosicao(performance.now(), true);
+      }
+      atualizarHud();
+      mostrarDica('Sua função: ' + (p.new.funcao || '—') + ' · Empresa ' + (p.new.empresa || '—')); setTimeout(esconderDica, 3000);
+    })
+    .subscribe(async status => {
+      if (status === 'SUBSCRIBED') {
+        await estado.canal.track(presencaAtual());
+        enviarPosicao(performance.now(), true);
+        registrarEvento('entrou_no_mapa', { apelido: estado.participante.apelido, versao: VERSAO, toque: EH_TOQUE });
+      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        mostrarDica('Conexão em tempo real caiu (' + status + ').');
+      }
+    });
+  setInterval(() => banco.from('participantes').update({ ultima_presenca: new Date().toISOString() }).eq('id', estado.participante.id), 30000);
 }
 
-function desenharOnline() {
-  const lista = el('listaOnline');
-  lista.innerHTML = '';
-  const entradas = Object.entries(estado.online).map(([chave, v]) => ({ chave, ...v[0] }));
-  entradas.sort((a, b) => (a.apelido || '').localeCompare(b.apelido || ''));
-  el('totalOnline').textContent = entradas.length;
-  entradas.forEach(p => {
-    const li = document.createElement('li');
-    if (p.chave === TOKEN) li.className = 'eu';
-    li.textContent = p.apelido || '?';
-    if (p.funcao) { const t = document.createElement('span'); t.className = 'tag'; t.textContent = p.funcao + ' · ' + (p.empresa || ''); li.appendChild(t); }
-    lista.appendChild(li);
-  });
+// ======================= HUD =======================
+function atualizarHud() {
+  const p = estado.participante, s = estado.sessao;
+  el('hud').innerHTML =
+    '<b>' + p.apelido + '</b> · ' + (p.funcao ? p.funcao + ' · Empresa ' + p.empresa : 'sem função ainda') + '<br>' +
+    'Sessão ' + s.codigo + ' · ' + s.estado + ' · online: ' + Object.keys(estado.online).length;
 }
 
-async function registrarEvento(tipo, detalhes) {
-  await banco.from('eventos').insert({ sessao_id: estado.sessao.id, participante_id: estado.participante.id, tipo, detalhes: detalhes || {} });
+// ======================= LOOP =======================
+function diferencaAngulo(a, b) { let d = (b - a) % (Math.PI * 2); if (d > Math.PI) d -= Math.PI * 2; if (d < -Math.PI) d += Math.PI * 2; return d; }
+
+function atualizarJogador(dt) {
+  const frente = { x: -Math.sin(cam.yaw), z: -Math.cos(cam.yaw) };
+  const direita = { x: Math.cos(cam.yaw), z: -Math.sin(cam.yaw) };
+  let mx = 0, mz = 0;
+  if (teclas['w'] || teclas['arrowup'])    { mx += frente.x;  mz += frente.z; }
+  if (teclas['s'] || teclas['arrowdown'])  { mx -= frente.x;  mz -= frente.z; }
+  if (teclas['d'] || teclas['arrowright']) { mx += direita.x; mz += direita.z; }
+  if (teclas['a'] || teclas['arrowleft'])  { mx -= direita.x; mz -= direita.z; }
+  if (joystick.ativo) { mx += frente.x * -joystick.dy + direita.x * joystick.dx; mz += frente.z * -joystick.dy + direita.z * joystick.dx; }
+  const tam = Math.hypot(mx, mz);
+  if (tam > 0.01) {
+    const fator = Math.min(1, tam); mx /= tam; mz /= tam;
+    jogador.x = Math.max(-MAPA.limite, Math.min(MAPA.limite, jogador.x + mx * jogador.velocidade * fator * dt));
+    jogador.z = Math.max(-MAPA.limite, Math.min(MAPA.limite, jogador.z + mz * jogador.velocidade * fator * dt));
+    jogador.angulo += diferencaAngulo(jogador.angulo, Math.atan2(mx, mz)) * Math.min(1, dt * 10);
+  }
+  jogador.malha.position.set(jogador.x, 0, jogador.z);
+  jogador.malha.rotation.y = jogador.angulo;
+}
+
+function atualizarOutros(dt) {
+  const k = Math.min(1, dt * 10);
+  for (const t in outros) {
+    const o = outros[t];
+    o.malha.position.x += (o.alvoX - o.malha.position.x) * k;
+    o.malha.position.z += (o.alvoZ - o.malha.position.z) * k;
+    o.malha.rotation.y += diferencaAngulo(o.malha.rotation.y, o.alvoAng) * k;
+  }
+}
+
+function atualizarCamera() {
+  const d = cam.distancia, inc = cam.inclinacao, yaw = cam.yaw;
+  camera.position.set(jogador.x + Math.sin(yaw) * Math.cos(inc) * d, Math.sin(inc) * d + 1, jogador.z + Math.cos(yaw) * Math.cos(inc) * d);
+  camera.lookAt(jogador.x, 1.5, jogador.z);
+}
+
+function loop() {
+  const dt = Math.min(0.05, relogio.getDelta());
+  atualizarJogador(dt);
+  atualizarOutros(dt);
+  atualizarCamera();
+  enviarPosicao(performance.now(), false);
+  renderizador.render(cena, camera);
+  requestAnimationFrame(loop);
+}
+
+function iniciarJogo() {
+  if (estado.jogoIniciado) return;
+  estado.jogoIniciado = true;
+  el('telaEntrada').style.display = 'none';
+  el('telaJogo').style.display = 'block';
+  construirMundo();
+  ligarControles();
+  atualizarHud();
+  conectarTempoReal();
+  relogio = new THREE.Clock();
+  requestAnimationFrame(loop);
 }
 
 // ======================= INÍCIO =======================
