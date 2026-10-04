@@ -22,7 +22,7 @@
 </style>
 </head>
 <body>
-<h1>Painel do Professor — Jogo Logística <span style="font-size:12px;color:#aab">v3</span></h1>
+<h1>Painel do Professor — Jogo Logística <span style="font-size:12px;color:#aab">bloco 3</span></h1>
 
 <div class="cartao" id="telaSenha">
   <div class="linha">
@@ -59,6 +59,26 @@
     <div id="estadoSessaoMsg" class="estado aviso" style="display:none"></div>
   </div>
 
+  <div class="cartao" id="cartaoCaminhoes" style="display:none">
+    <div class="linha">
+      <select id="eventoCaminhao">
+        <option value="normal">Caminhão normal (agendado)</option>
+        <option value="sem_agendamento">Sem agendamento</option>
+        <option value="nf_divergente">Agendado · NF divergente (bloco 5)</option>
+        <option value="avaria">Agendado · com avaria (bloco 4)</option>
+        <option value="vencido">Agendado · produto vencido (bloco 6)</option>
+      </select>
+      <button id="botaoMandar" class="verde">Mandar caminhão (A e B)</button>
+      <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="filaAutomatica" style="width:auto"> fila automática a cada</label>
+      <input id="intervaloFila" type="number" min="1" max="30" value="3" style="width:70px"> min
+    </div>
+    <div class="resumo"><span>Agenda restante: <b id="agendaRestante">—</b></span><span>Caminhões: <b id="totalCaminhoes">0</b></span></div>
+    <table>
+      <thead><tr><th>Emp.</th><th>Placa</th><th>Agendado</th><th>Evento</th><th>Estado</th><th>Há</th><th>Portaria</th></tr></thead>
+      <tbody id="corpoCaminhoes"></tbody>
+    </table>
+  </div>
+
   <div class="cartao" id="cartaoParticipantes" style="display:none">
     <div class="resumo">
       <span>Entraram: <b id="totalEntraram">0</b></span>
@@ -86,7 +106,8 @@ function mostrarEstado(id, texto, classe) { const e = el(id); e.style.display = 
 if (typeof supabase === 'undefined') mostrarEstado('estadoSenha', 'A biblioteca do Supabase não carregou (cdn.jsdelivr.net bloqueado?).', 'erro');
 const banco = supabase.createClient(SUPABASE_URL, SUPABASE_CHAVE);
 
-const estado = { senha: null, sessao: null, participantes: [], online: {}, canal: null };
+const estado = { senha: null, sessao: null, participantes: [], online: {}, canal: null, caminhoes: {}, agenda: [], temporizadorFila: null };
+const TEMPO_CHEGADA = 16;   // segundos até o caminhão parar na portaria (igual ao index.html)
 
 // ======================= SENHA =======================
 window.addEventListener('error', e => mostrarEstado('estadoSenha', 'Erro na página: ' + e.message, 'erro'));
@@ -121,7 +142,7 @@ async function carregarSessao() {
   const { data } = await banco.from('sessoes').select('*').neq('estado', 'encerrada').limit(1).maybeSingle();
   estado.sessao = data || null;
   desenharSessao();
-  if (estado.sessao) { await carregarParticipantes(); assinarTempoReal(); }
+  if (estado.sessao) { await carregarParticipantes(); await carregarCaminhoes(); assinarTempoReal(); }
 }
 
 function desenharSessao() {
@@ -129,6 +150,7 @@ function desenharSessao() {
   el('semSessao').style.display = tem ? 'none' : 'block';
   el('comSessao').style.display = tem ? 'block' : 'none';
   el('cartaoParticipantes').style.display = tem ? 'block' : 'none';
+  el('cartaoCaminhoes').style.display = tem ? 'block' : 'none';
   if (tem) { el('codigoSessao').textContent = estado.sessao.codigo; el('estadoSessao').textContent = estado.sessao.estado; }
 }
 
@@ -139,7 +161,7 @@ async function criarSessao() {
   estado.sessao = data;
   mostrarEstado('estadoSessaoMsg', 'Sessão ' + data.codigo + ' aberta. Os alunos já podem entrar pelo link.', 'ok');
   desenharSessao();
-  await carregarParticipantes();
+  await carregarParticipantes(); await carregarCaminhoes();
   assinarTempoReal();
 }
 
@@ -149,9 +171,66 @@ async function mudarEstado(novo) {
   if (error) { mostrarEstado('estadoSessaoMsg', 'Erro: ' + error.message, 'erro'); return; }
   estado.sessao = data;
   mostrarEstado('estadoSessaoMsg', 'Estado: ' + novo, 'ok');
-  if (novo === 'encerrada') { if (estado.canal) banco.removeChannel(estado.canal); estado.sessao = null; estado.participantes = []; }
+  if (novo === 'encerrada') { pararFila(); if (estado.canal) banco.removeChannel(estado.canal); estado.sessao = null; estado.participantes = []; estado.caminhoes = {}; estado.agenda = []; }
   desenharSessao();
 }
+
+// ======================= CAMINHÕES =======================
+async function carregarCaminhoes() {
+  const [{ data: cams }, { data: ag }] = await Promise.all([
+    banco.from('caminhoes').select('*').eq('sessao_id', estado.sessao.id),
+    banco.from('agendamentos').select('*').eq('sessao_id', estado.sessao.id),
+  ]);
+  estado.caminhoes = {}; (cams || []).forEach(c => estado.caminhoes[c.id] = c);
+  estado.agenda = ag || [];
+  desenharCaminhoes();
+}
+
+async function mandarCaminhao() {
+  if (!estado.sessao) return;
+  const evento = el('eventoCaminhao').value;
+  const { data, error } = await banco.rpc('professor_mandar_caminhao', { p_senha: estado.senha, p_sessao_id: estado.sessao.id, p_evento: evento });
+  if (error) { mostrarEstado('estadoSessaoMsg', 'Erro ao mandar caminhão: ' + error.message, 'erro'); if (/agenda do dia acabou/.test(error.message)) pararFila(); return; }
+  mostrarEstado('estadoSessaoMsg', data + ' caminhão(ões) a caminho (' + evento + ').', 'ok');
+  const { data: ag } = await banco.from('agendamentos').select('*').eq('sessao_id', estado.sessao.id);
+  estado.agenda = ag || [];
+  desenharCaminhoes();
+}
+
+function pararFila() { if (estado.temporizadorFila) { clearInterval(estado.temporizadorFila); estado.temporizadorFila = null; } el('filaAutomatica').checked = false; }
+function alternarFila() {
+  if (el('filaAutomatica').checked) {
+    const min = Math.max(1, Number(el('intervaloFila').value) || 3);
+    estado.temporizadorFila = setInterval(() => { if (estado.sessao && estado.sessao.estado === 'rodando') mandarCaminhao(); }, min * 60000);
+    mostrarEstado('estadoSessaoMsg', 'Fila automática ligada: um caminhão por empresa a cada ' + min + ' min enquanto a rodada estiver rodando. Mantenha esta aba aberta.', 'ok');
+  } else pararFila();
+}
+
+function tempoNoEstado(c) {
+  const ref = c.decidido_em || c.criado_em;
+  const s = Math.max(0, Math.round((Date.now() - new Date(ref).getTime()) / 1000));
+  return s < 60 ? s + ' s' : Math.floor(s / 60) + ' min ' + (s % 60) + ' s';
+}
+function descreverEstado(c) {
+  if (c.estado === 'chegando') { const t = (Date.now() - new Date(c.criado_em).getTime()) / 1000; return t < TEMPO_CHEGADA ? 'chegando' : 'parado na portaria'; }
+  if (c.estado === 'liberado') return 'liberado · entrando';
+  if (c.estado === 'recusado') return 'recusado · foi embora';
+  return c.estado;
+}
+
+function desenharCaminhoes() {
+  const corpo = el('corpoCaminhoes');
+  const lista = Object.values(estado.caminhoes).sort((a, b) => new Date(b.criado_em) - new Date(a.criado_em));
+  corpo.innerHTML = lista.map(c => {
+    const esperando = c.estado === 'chegando' && (Date.now() - new Date(c.criado_em).getTime()) / 1000 >= TEMPO_CHEGADA;
+    const port = c.decisao ? (c.decisao + (c.acertou_portaria ? ' ✔' : ' ✘') + (c.motivo ? ' · ' + escapar(c.motivo) : '')) : '—';
+    return '<tr' + (esperando ? ' style="color:#ffd54a"' : '') + '><td>' + c.empresa + '</td><td><code>' + escapar(c.placa) + '</code></td><td>' + (c.agendado ? 'sim' : 'não') + '</td><td>' + c.evento + '</td><td>' + descreverEstado(c) + '</td><td>' + tempoNoEstado(c) + '</td><td>' + port + '</td></tr>';
+  }).join('');
+  el('totalCaminhoes').textContent = lista.length;
+  const restantes = estado.agenda.filter(a => a.empresa === 'A' && !a.usado).length;
+  el('agendaRestante').textContent = estado.agenda.length ? restantes + ' de ' + estado.agenda.filter(a => a.empresa === 'A').length : '—';
+}
+setInterval(() => { if (estado.sessao) desenharCaminhoes(); }, 1000);
 
 // ======================= PARTICIPANTES =======================
 async function carregarParticipantes() {
@@ -165,6 +244,10 @@ function assinarTempoReal() {
   estado.canal = banco.channel('sessao-' + estado.sessao.id, { config: { presence: { key: 'professor' } } });
   estado.canal
     .on('presence', { event: 'sync' }, () => { estado.online = estado.canal.presenceState(); desenharParticipantes(); })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'caminhoes', filter: 'sessao_id=eq.' + estado.sessao.id }, p => {
+      if (p.new && p.new.id) estado.caminhoes[p.new.id] = p.new;
+      desenharCaminhoes();
+    })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'participantes', filter: 'sessao_id=eq.' + estado.sessao.id }, p => {
       if (p.eventType === 'INSERT') estado.participantes.push(p.new);
       else if (p.eventType === 'UPDATE') { const i = estado.participantes.findIndex(x => x.id === p.new.id); if (i >= 0) estado.participantes[i] = p.new; else estado.participantes.push(p.new); }
@@ -244,6 +327,8 @@ el('botaoRodando').addEventListener('click', () => mudarEstado('rodando'));
 el('botaoPausada').addEventListener('click', () => mudarEstado('pausada'));
 el('botaoEncerrar').addEventListener('click', () => mudarEstado('encerrada'));
 el('botaoSortear').addEventListener('click', distribuirAutomaticamente);
+el('botaoMandar').addEventListener('click', mandarCaminhao);
+el('filaAutomatica').addEventListener('change', alternarFila);
 try { const s = sessionStorage.getItem('senha_professor'); if (s) { el('senha').value = s; entrarComSenha(); } } catch (e) {}
 </script>
 </body>

@@ -29,13 +29,36 @@
   #joystickBolinha { position: absolute; left: 40px; top: 40px; width: 50px; height: 50px; border-radius: 50%; background: rgba(255,255,255,.55); }
   #botaoAcao { position: fixed; right: 24px; bottom: 34px; width: 84px; height: 84px; border-radius: 50%; background: rgba(255,213,74,.85); color: #000; font-size: 30px; font-weight: bold; border: 3px solid #fff; display: none; touch-action: none; margin: 0; padding: 0; }
   #ajuda { position: fixed; right: 10px; top: 10px; background: rgba(0,0,0,.55); color: #ddd; padding: 8px 12px; border-radius: 8px; font-size: 12px; line-height: 1.5; pointer-events: none; }
+
+  /* ---- Painel de tarefa (portaria) ---- */
+  #fundoPainel { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: center; justify-content: center; padding: 10px; overflow: auto; }
+  #painelTarefa { background: #fff; color: #222; width: min(760px, 96vw); max-height: 96vh; overflow: auto; border-radius: 10px; padding: 16px 18px; }
+  #painelTarefa h2 { margin: 0 0 4px; font-size: 18px; color: #1b4f8a; }
+  #painelTarefa .falante { font-size: 13px; color: #777; margin-bottom: 8px; }
+  #painelTarefa p { line-height: 1.45; margin: 0 0 10px; font-size: 15px; }
+  .duasColunas { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  @media (max-width: 640px) { .duasColunas { grid-template-columns: 1fr; } }
+  .quadro { border: 2px solid #c9d6e4; border-radius: 8px; padding: 10px 12px; background: #f4f8fc; font-size: 14px; }
+  .quadro h3 { margin: 0 0 6px; font-size: 14px; color: #1b4f8a; }
+  .quadro table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .quadro th, .quadro td { text-align: left; padding: 4px 4px; border-bottom: 1px solid #dde; }
+  .quadro tr.usado td { color: #999; text-decoration: line-through; }
+  .campo { margin: 6px 0; }
+  .campo b { display: inline-block; min-width: 120px; color: #555; }
+  .placa { font-family: monospace; font-size: 18px; background: #fff; border: 2px solid #333; border-radius: 4px; padding: 2px 8px; }
+  .acoes { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; align-items: center; }
+  .acoes button { width: auto; margin: 0; padding: 12px 18px; }
+  .acoes select { padding: 10px; font-size: 14px; border-radius: 8px; border: 1px solid #999; }
+  .verde { background: #2e8b57 !important; } .vermelho { background: #c0392b !important; } .cinza { background: #556 !important; }
+  #feedbackTarefa { display: none; margin-top: 12px; padding: 12px 14px; border-radius: 8px; line-height: 1.5; font-size: 15px; }
+  #feedbackTarefa.ok { background: #e3f5ea; border: 2px solid #2e8b57; } #feedbackTarefa.ruim { background: #fbe6e3; border: 2px solid #c0392b; }
 </style>
 </head>
 <body>
 
 <div id="telaEntrada">
   <h1>Jogo Logística — 2C</h1>
-  <div class="sub">Bloco 2 · mapa compartilhado</div>
+  <div class="sub">Bloco 3 · portaria</div>
   <div class="cartao">
     <label for="apelido">Seu apelido</label>
     <input id="apelido" maxlength="20" placeholder="ex.: Lucas R." autocomplete="off">
@@ -50,6 +73,19 @@
   <div id="dica"></div>
   <div id="joystick"><div id="joystickBolinha"></div></div>
   <button id="botaoAcao">E</button>
+  <div id="fundoPainel">
+    <div id="painelTarefa">
+      <h2 id="tituloTarefa"></h2>
+      <div class="falante" id="falanteTarefa"></div>
+      <p id="textoTarefa"></p>
+      <div class="duasColunas">
+        <div class="quadro" id="quadroCaminhao"></div>
+        <div class="quadro" id="quadroAgenda"></div>
+      </div>
+      <div class="acoes" id="acoesTarefa"></div>
+      <div id="feedbackTarefa"></div>
+    </div>
+  </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
@@ -58,7 +94,17 @@
 // ======================= CONFIGURAÇÃO =======================
 const SUPABASE_URL   = 'https://xtdixomxyykdredhcvyd.supabase.co';
 const SUPABASE_CHAVE = 'sb_publishable_CP_eV7p1b3Ed3m-aQDjqBg_TEkArGnN';
-const VERSAO = 'bloco2-v1';
+const VERSAO = 'bloco3-v1';
+
+// Texto da tarefa da Portaria (editável)
+const TAREFA_PORTARIA = {
+  titulo: 'Portaria — controle de acesso',
+  falante: 'Motorista',
+  texto: 'Bom dia! Tenho uma entrega para a empresa. Pode liberar a entrada?',
+  motivosRecusa: ['Sem agendamento para hoje', 'Placa diferente da agendada', 'Fora do horário agendado', 'Documentação incompleta'],
+};
+// Tempos da animação do caminhão (segundos, contados a partir dos carimbos do banco)
+const TEMPO = { rua: 12, acesso: 4, cancela: 2, entrada: 8, recuo: 5, saida: 12 };
 
 const el = id => document.getElementById(id);
 function mostrarEstado(id, texto, classe) { const e = el(id); e.textContent = texto; e.className = 'estado ' + classe; }
@@ -70,7 +116,7 @@ const banco = supabase.createClient(SUPABASE_URL, SUPABASE_CHAVE);
 const EH_TOQUE = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
 
 // ======================= ESTADO GERAL =======================
-const estado = { sessao: null, participante: null, canal: null, online: {}, jogoIniciado: false };
+const estado = { sessao: null, participante: null, canal: null, online: {}, jogoIniciado: false, caminhoes: {}, agenda: [], pontos: 0, tarefaAberta: false };
 
 function tokenDoAparelho() {
   let t = null;
@@ -123,9 +169,12 @@ async function registrarEvento(tipo, detalhes) {
 // ======================= MAPA =======================
 const MAPA = {
   larguraRua: 16,
-  afastamentoEmpresa: 12,   // distância da rua até a portaria de cada empresa
+  afastamentoEmpresa: 30,   // distância da rua até a portaria de cada empresa
   limite: 125,              // limite do mundo em X e Z
 };
+MAPA.dx = MAPA.larguraRua / 2 + MAPA.afastamentoEmpresa;   // x da portaria (A = -dx, B = +dx)
+const cancelas = {};   // empresa -> pivô da cancela
+const caminhoesMalha = {};   // id do caminhão -> malha
 
 let cena, camera, renderizador, relogio;
 const jogador = { malha: null, x: 0, z: 0, angulo: 0, velocidade: 7 };
@@ -186,9 +235,10 @@ function construirEmpresa(corTelhado) {
   g.add(caixa(4, 3.2, 4, 0xe8e2d0, -4, 1.6, 10));
   g.add(caixa(4.6, 0.3, 4.6, 0x6b4e2e, -4, 3.35, 10));
   g.add(caixa(0.6, 1.2, 0.6, 0xffb300, 0, 0.6, 7.5));
-  const braco = caixa(0.25, 0.25, 14, 0xffffff, 0, 1.2, 0.5);
-  g.add(braco);
-  for (let i = 0; i < 5; i++) g.add(caixa(0.27, 0.27, 1.2, 0xd32f2f, 0, 1.2, 6 - i * 2.6));
+  const pivo = new THREE.Group(); pivo.position.set(0, 1.2, 7.5);     // braço da cancela gira aqui
+  pivo.add(caixa(0.25, 0.25, 14, 0xffffff, 0, 0, -7));
+  for (let i = 0; i < 5; i++) pivo.add(caixa(0.27, 0.27, 1.2, 0xd32f2f, 0, 0, -1.5 - i * 2.6));
+  g.add(pivo); g.userData.cancela = pivo;
   // galpão com 3 docas na face leste (x=-60)
   g.add(caixa(1, 9, 70, 0xc9c3b5, -60, 4.5, 0));
   g.add(caixa(40, 9, 1, 0xc9c3b5, -80, 4.5, -35));
@@ -228,8 +278,8 @@ function construirMundo() {
   for (let z = -120; z <= 120; z += 10) cena.add(plano(0.4, 4, 0xdddddd, 0, z, 0.035)); // faixa tracejada
 
   const dx = MAPA.larguraRua / 2 + MAPA.afastamentoEmpresa;
-  const empresaA = construirEmpresa(0x7a6f63); empresaA.position.x = -dx; cena.add(empresaA);                          // galpão para oeste
-  const empresaB = construirEmpresa(0x5f6f8a); empresaB.position.x = dx; empresaB.rotation.y = Math.PI; cena.add(empresaB); // espelhada
+  const empresaA = construirEmpresa(0x7a6f63); empresaA.position.x = -dx; cena.add(empresaA); cancelas.A = empresaA.userData.cancela;  // galpão para oeste
+  const empresaB = construirEmpresa(0x5f6f8a); empresaB.position.x = dx; empresaB.rotation.y = Math.PI; cena.add(empresaB); cancelas.B = empresaB.userData.cancela; // espelhada
   // acessos da rua até as portarias
   cena.add(plano(MAPA.afastamentoEmpresa, 12, 0x4a4a4a, -(MAPA.larguraRua / 2 + MAPA.afastamentoEmpresa / 2), 0, 0.03));
   cena.add(plano(MAPA.afastamentoEmpresa, 12, 0x4a4a4a, (MAPA.larguraRua / 2 + MAPA.afastamentoEmpresa / 2), 0, 0.03));
@@ -251,6 +301,150 @@ function pontoInicial(empresa) {
   if (empresa === 'A') return { x: -dx - 8, z: 10, angulo: -Math.PI / 2 };
   if (empresa === 'B') return { x: dx + 8, z: 10, angulo: Math.PI / 2 };
   return { x: (Math.random() - 0.5) * 6, z: 40 + (Math.random() - 0.5) * 10, angulo: Math.PI };
+}
+
+// ======================= CAMINHÕES =======================
+function criarCaminhao(corCabine) {
+  const g = new THREE.Group();   // frente = -Z local
+  g.add(caixa(2.6, 2.4, 2.2, corCabine, 0, 1.9, -5.3));
+  g.add(caixa(2.4, 1.0, 0.1, 0x9ad0f5, 0, 2.4, -6.41));
+  g.add(caixa(2.6, 2.8, 8.0, 0xf5f5f5, 0, 2.2, 0));
+  g.add(caixa(2.7, 0.6, 14, 0x333333, 0, 0.6, -0.5));
+  [[-1.4, -5.2], [1.4, -5.2], [-1.4, 1.5], [1.4, 1.5], [-1.4, 3.2], [1.4, 3.2]].forEach(([x, z]) => {
+    const roda = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.4, 12), new THREE.MeshLambertMaterial({ color: 0x111111 }));
+    roda.rotation.z = Math.PI / 2; roda.position.set(x, 0.55, z); g.add(roda);
+  });
+  return g;
+}
+
+function segundosDesde(carimbo) { return (Date.now() - new Date(carimbo).getTime()) / 1000; }
+function sinalEmpresa(empresa) { return empresa === 'A' ? -1 : 1; }
+
+// Ordem na fila da portaria: entre os caminhões 'chegando' da mesma empresa, por ordem de criação
+function posicaoNaFila(c) {
+  const fila = Object.values(estado.caminhoes).filter(o => o.empresa === c.empresa && o.estado === 'chegando').sort((a, b) => new Date(a.criado_em) - new Date(b.criado_em));
+  return Math.max(0, fila.findIndex(o => o.id === c.id));
+}
+
+function caminhaoChegou(c) { return c.estado === 'chegando' && segundosDesde(c.criado_em) >= TEMPO.rua + TEMPO.acesso; }
+
+// Posição do caminhão no mundo a partir dos carimbos de tempo (todos os navegadores calculam igual)
+function posicaoCaminhao(c) {
+  const s = sinalEmpresa(c.empresa);           // A = -1 (oeste), B = +1 (leste)
+  const paradaX = s * (MAPA.dx - 10);          // ponto de parada em frente à cancela
+  const angRua = 0, angAcesso = s < 0 ? Math.PI / 2 : -Math.PI / 2, angSaida = Math.PI;
+  const lerp = (a, b, t) => a + (b - a) * Math.max(0, Math.min(1, t));
+
+  if (c.estado === 'chegando') {
+    const t = segundosDesde(c.criado_em), k = posicaoNaFila(c);
+    const alvoX = paradaX - s * 16 * k;        // os de trás param mais perto da rua
+    if (t < TEMPO.rua) return { x: 0, z: lerp(120, 0, t / TEMPO.rua), ang: angRua, visivel: true };
+    const t2 = (t - TEMPO.rua) / TEMPO.acesso;
+    return { x: lerp(0, alvoX, t2), z: 0, ang: angAcesso, visivel: true };
+  }
+  const td = segundosDesde(c.decidido_em || c.criado_em);
+  if (c.estado === 'liberado' || c.estado === 'aguardando_doca') {
+    const t = Math.max(0, td - TEMPO.cancela) / TEMPO.entrada;
+    return { x: lerp(paradaX, s * (MAPA.dx + 30), t), z: 0, ang: angAcesso, visivel: true };
+  }
+  if (c.estado === 'recusado') {
+    if (td < TEMPO.recuo) return { x: lerp(paradaX, 0, td / TEMPO.recuo), z: 0, ang: angAcesso, visivel: true };
+    const t2 = (td - TEMPO.recuo) / TEMPO.saida;
+    return { x: 0, z: lerp(0, 120, t2), ang: angSaida, visivel: t2 < 1 };
+  }
+  return { x: paradaX, z: 0, ang: angAcesso, visivel: false };
+}
+
+function atualizarCaminhoes(dt) {
+  for (const id in estado.caminhoes) {
+    const c = estado.caminhoes[id];
+    let m = caminhoesMalha[id];
+    if (!m) {
+      m = caminhoesMalha[id] = criarCaminhao(c.evento === 'sem_agendamento' ? 0x8e44ad : 0xe53935);
+      const et = criarEtiqueta(c.placa, '#ffffff'); et.position.y = 4.2; et.scale.set(5, 1.25, 1); m.add(et);
+      cena.add(m);
+    }
+    const p = posicaoCaminhao(c);
+    m.visible = p.visivel;
+    if (!p.visivel) continue;
+    m.position.set(p.x, 0, p.z);
+    m.rotation.y += diferencaAngulo(m.rotation.y, p.ang) * Math.min(1, dt * 4);
+  }
+  // cancelas: abrem quando há caminhão liberado passando (até o fim da entrada)
+  for (const emp of ['A', 'B']) {
+    const aberta = Object.values(estado.caminhoes).some(c => c.empresa === emp && (c.estado === 'liberado' || c.estado === 'aguardando_doca') && segundosDesde(c.decidido_em) < TEMPO.cancela + TEMPO.entrada);
+    const piv = cancelas[emp];
+    if (piv) piv.rotation.x += ((aberta ? Math.PI / 2 : 0) - piv.rotation.x) * Math.min(1, dt * 2);
+  }
+}
+
+function caminhaoNaMinhaPortaria() {
+  const emp = estado.participante.empresa;
+  return Object.values(estado.caminhoes).filter(c => c.empresa === emp && caminhaoChegou(c)).sort((a, b) => new Date(a.criado_em) - new Date(b.criado_em))[0] || null;
+}
+function pertoDaMinhaCancela() {
+  const emp = estado.participante.empresa;
+  if (!emp) return false;
+  return Math.hypot(jogador.x - sinalEmpresa(emp) * MAPA.dx, jogador.z) < 9;
+}
+
+// ======================= TAREFA DA PORTARIA =======================
+function abrirTarefaPortaria(c) {
+  estado.tarefaAberta = true;
+  esconderDica(); ultimaDica = '';
+  el('tituloTarefa').textContent = TAREFA_PORTARIA.titulo;
+  el('falanteTarefa').textContent = TAREFA_PORTARIA.falante + ' (' + c.transportadora + ') diz:';
+  el('textoTarefa').textContent = TAREFA_PORTARIA.texto;
+  el('quadroCaminhao').innerHTML =
+    '<h3>Caminhão na portaria</h3>' +
+    '<div class="campo"><b>Placa</b> <span class="placa">' + escapar(c.placa) + '</span></div>' +
+    '<div class="campo"><b>Transportadora</b> ' + escapar(c.transportadora) + '</div>' +
+    '<div class="campo"><b>Fornecedor</b> ' + escapar(c.fornecedor) + '</div>' +
+    '<div class="campo"><b>Carga declarada</b> ' + escapar(c.carga) + '</div>' +
+    '<div class="campo"><b>Chegou às</b> ' + new Date(c.criado_em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) + '</div>';
+  const agenda = estado.agenda.filter(a => a.empresa === estado.participante.empresa).sort((a, b) => a.ordem - b.ordem);
+  el('quadroAgenda').innerHTML = '<h3>Agenda de entregas do dia — Empresa ' + estado.participante.empresa + '</h3>' +
+    '<table><tr><th>Horário</th><th>Placa</th><th>Fornecedor</th></tr>' +
+    agenda.map(a => '<tr' + (a.usado && a.placa !== c.placa ? ' class="usado"' : '') + '><td>' + a.horario + '</td><td><code>' + escapar(a.placa) + '</code></td><td>' + escapar(a.fornecedor) + '</td></tr>').join('') +
+    '</table>';
+  el('acoesTarefa').innerHTML =
+    '<button id="botaoLiberar" class="verde">Liberar entrada</button>' +
+    '<button id="botaoRecusar" class="vermelho">Recusar</button>' +
+    '<select id="motivoRecusa">' + TAREFA_PORTARIA.motivosRecusa.map(m => '<option>' + m + '</option>').join('') + '</select>' +
+    '<button id="botaoFecharTarefa" class="cinza">Voltar</button>';
+  el('feedbackTarefa').style.display = 'none';
+  el('fundoPainel').style.display = 'flex';
+  el('botaoLiberar').onclick = () => decidirPortaria(c, 'liberar', null);
+  el('botaoRecusar').onclick = () => decidirPortaria(c, 'recusar', el('motivoRecusa').value);
+  el('botaoFecharTarefa').onclick = fecharTarefa;
+}
+
+async function decidirPortaria(c, decisao, motivo) {
+  el('acoesTarefa').querySelectorAll('button, select').forEach(b => b.disabled = true);
+  const { data, error } = await banco.rpc('portaria_decidir', { p_caminhao_id: c.id, p_participante_id: estado.participante.id, p_decisao: decisao, p_motivo: motivo });
+  const fb = el('feedbackTarefa');
+  if (error) { fb.className = 'ruim'; fb.textContent = 'Não foi possível registrar: ' + error.message; fb.style.display = 'block'; el('acoesTarefa').innerHTML = '<button id="botaoFecharTarefa" class="cinza">Fechar</button>'; el('botaoFecharTarefa').onclick = fecharTarefa; return; }
+  estado.pontos += data.pontos; atualizarHud();
+  fb.className = data.acertou ? 'ok' : 'ruim';
+  fb.innerHTML = escapar(data.mensagem) + '<br><b>' + (data.pontos > 0 ? '+' : '') + data.pontos + ' pontos</b>';
+  fb.style.display = 'block';
+  el('acoesTarefa').innerHTML = '<button id="botaoFecharTarefa">Continuar</button>';
+  el('botaoFecharTarefa').onclick = fecharTarefa;
+}
+
+function fecharTarefa() { el('fundoPainel').style.display = 'none'; estado.tarefaAberta = false; }
+function escapar(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+async function carregarEstadoDoJogo() {
+  const [{ data: cams }, { data: ag }, { data: evs }] = await Promise.all([
+    banco.from('caminhoes').select('*').eq('sessao_id', estado.sessao.id),
+    banco.from('agendamentos').select('*').eq('sessao_id', estado.sessao.id),
+    banco.from('eventos').select('detalhes').eq('participante_id', estado.participante.id),
+  ]);
+  (cams || []).forEach(c => estado.caminhoes[c.id] = c);
+  estado.agenda = ag || [];
+  estado.pontos = (evs || []).reduce((s, e) => s + (Number(e.detalhes && e.detalhes.pontos) || 0), 0);
+  atualizarHud();
 }
 
 // ======================= CONTROLES =======================
@@ -315,9 +509,31 @@ function girarCamera(mx, my) {
 }
 
 function acaoInteragir() {
-  // Bloco 2: ainda não há estações para interagir; bloco 3 liga a Portaria.
-  mostrarDica('Nada para interagir aqui ainda.');
+  if (estado.tarefaAberta) return;
+  if (pertoDaMinhaCancela()) {
+    if (estado.participante.funcao !== 'Portaria') { mostrarDica('Só a Portaria da Empresa ' + estado.participante.empresa + ' atende aqui.'); setTimeout(esconderDica, 1500); return; }
+    const c = caminhaoNaMinhaPortaria();
+    if (!c) { mostrarDica('Nenhum caminhão esperando na portaria.'); setTimeout(esconderDica, 1500); return; }
+    abrirTarefaPortaria(c);
+    return;
+  }
+  mostrarDica('Nada para interagir aqui.');
   setTimeout(esconderDica, 1200);
+}
+
+// Dica contextual (chamada no loop)
+let ultimaDica = '';
+function atualizarDica() {
+  if (estado.tarefaAberta) return;
+  let d = '';
+  if (pertoDaMinhaCancela() && estado.participante.funcao === 'Portaria') {
+    const c = caminhaoNaMinhaPortaria();
+    d = c ? '<b>E</b> Atender caminhão ' + escapar(c.placa) : 'Portaria: aguardando caminhões';
+  } else if (estado.participante.funcao === 'Portaria') {
+    const c = caminhaoNaMinhaPortaria();
+    if (c) d = 'Caminhão ' + escapar(c.placa) + ' esperando na sua portaria!';
+  }
+  if (d !== ultimaDica) { ultimaDica = d; if (d) mostrarDica(d); else esconderDica(); }
 }
 function mostrarDica(html) { el('dica').innerHTML = html; el('dica').style.display = 'block'; }
 function esconderDica() { el('dica').style.display = 'none'; }
@@ -368,6 +584,10 @@ function conectarTempoReal() {
   estado.canal
     .on('presence', { event: 'sync' }, () => { estado.online = estado.canal.presenceState(); sincronizarComPresenca(); atualizarHud(); })
     .on('broadcast', { event: 'posicao' }, m => receberPosicao(m.payload))
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'caminhoes', filter: 'sessao_id=eq.' + estado.sessao.id }, p => {
+      if (p.new && p.new.id) estado.caminhoes[p.new.id] = p.new;
+      if (p.new && p.new.id && estado.agenda.length) { const a = estado.agenda.find(x => x.empresa === p.new.empresa && x.placa === p.new.placa); if (a) a.usado = true; }
+    })
     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'sessoes', filter: 'id=eq.' + estado.sessao.id }, p => {
       estado.sessao = p.new; atualizarHud();
       if (p.new.estado === 'encerrada') { mostrarDica('O professor encerrou a sessão.'); }
@@ -401,7 +621,7 @@ function conectarTempoReal() {
 function atualizarHud() {
   const p = estado.participante, s = estado.sessao;
   el('hud').innerHTML =
-    '<b>' + p.apelido + '</b> · ' + (p.funcao ? p.funcao + ' · Empresa ' + p.empresa : 'sem função ainda') + '<br>' +
+    '<b>' + escapar(p.apelido) + '</b> · ' + (p.funcao ? p.funcao + ' · Empresa ' + p.empresa : 'sem função ainda') + ' · <b>' + estado.pontos + ' pts</b><br>' +
     'Sessão ' + s.codigo + ' · ' + s.estado + ' · online: ' + Object.keys(estado.online).length;
 }
 
@@ -446,8 +666,10 @@ function atualizarCamera() {
 
 function loop() {
   const dt = Math.min(0.05, relogio.getDelta());
-  atualizarJogador(dt);
+  if (!estado.tarefaAberta) atualizarJogador(dt);
   atualizarOutros(dt);
+  atualizarCaminhoes(dt);
+  atualizarDica();
   atualizarCamera();
   enviarPosicao(performance.now(), false);
   renderizador.render(cena, camera);
@@ -463,6 +685,7 @@ function iniciarJogo() {
   ligarControles();
   atualizarHud();
   conectarTempoReal();
+  carregarEstadoDoJogo();
   relogio = new THREE.Clock();
   requestAnimationFrame(loop);
 }
