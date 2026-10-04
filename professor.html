@@ -246,7 +246,7 @@ el('botaoRodando').addEventListener('click', () => mudarEstado('rodando'));
 el('botaoPausada').addEventListener('click', () => mudarEstado('pausada'));
 el('botaoEncerrar').addEventListener('click', () => mudarEstado('encerrada'));
 el('botaoSortear').addEventListener('click', distribuirAutomaticamente);
-verificarSeExisteSenha();
+prepararTelaSenha();
 try { const s = sessionStorage.getItem('senha_professor'); if (s) { el('senha').value = s; entrarComSenha(); } } catch (e) {}
 </script>
 </body>
